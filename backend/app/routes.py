@@ -1,4 +1,8 @@
+from datetime import datetime
 from flask import Blueprint, jsonify, request
+from sqlalchemy import or_
+from . import db
+from .modules.patient.orm import PatientORM
 
 api_bp = Blueprint("api", __name__)
 
@@ -11,8 +15,29 @@ def ping():
 
 @api_bp.post("/patients")
 def create_patient():
-    _ = request.get_json(silent=True)
-    return jsonify(error="Not Implemented", hint="FR-1 create patient"), 501
+    data = request.get_json(force=True) or {}
+    mrn = (data.get("mrn") or "").strip()
+    name = (data.get("name") or "").strip()
+    dob = (data.get("dob") or "").strip() or None
+    gender = (data.get("gender") or "").strip() or None
+
+    if not mrn or not name:
+        return jsonify(error="mrn and name are required"), 400
+
+    if db.session.query(PatientORM).filter(PatientORM.mrn == mrn).first():
+        return jsonify(error="mrn already exists"), 409
+
+    dob_parsed = None
+    if dob:
+        try:
+            dob_parsed = datetime.fromisoformat(dob).date()
+        except ValueError:
+            return jsonify(error="invalid dob format"), 400
+
+    p = PatientORM(mrn=mrn, name=name, dob=dob_parsed, gender=gender)
+    db.session.add(p)
+    db.session.commit()
+    return jsonify(patientId=p.id), 201
 
 
 @api_bp.get("/patients/<int:patient_id>/summary")
@@ -34,8 +59,23 @@ def append_note():
 
 @api_bp.get("/patients/search")
 def search_patients():
-    _ = request.args.get("q", "")
-    return jsonify(error="Not Implemented", hint="FR-4 search"), 501
+    q = (request.args.get("q", "") or "").strip()
+    if not q:
+        return jsonify([])
+    # exact by id
+    if q.isdigit():
+        p = db.session.get(PatientORM, int(q))
+        if p:
+            return jsonify([p.to_dict()])
+        return jsonify([])
+    # fuzzy by name or mrn contains
+    results = (
+        db.session.query(PatientORM)
+        .filter(or_(PatientORM.name.ilike(f"%{q}%"), PatientORM.mrn.ilike(f"%{q}%")))
+        .limit(20)
+        .all()
+    )
+    return jsonify([p.to_dict() for p in results])
 
 
 # Orders & Labs
