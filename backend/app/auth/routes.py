@@ -18,15 +18,18 @@ def _load_allowed_users():
         if not entry:
             continue
         parts = entry.split(":")
-        if len(parts) != 3:
+        if len(parts) not in (3, 4):
             continue
-        u, p, role = parts
+        u, p, role = parts[0], parts[1], parts[2]
         try:
             role_value = Role(role).value
         except Exception:
             # skip invalid role labels
             continue
-        users[u] = {"password": p, "roles": [role_value]}
+        entry = {"password": p, "roles": [role_value]}
+        if len(parts) == 4 and role_value == Role.LAB_TECH.value:
+            entry["lab"] = parts[3]
+        users[u] = entry
     return users
 
 
@@ -54,11 +57,15 @@ def login():
         # If client supplied a role, it must match the stored role
         if requested_role and requested_role not in roles:
             return jsonify(error="role not permitted for this user", allowed=roles), 403
+        # Include lab code for LabTech
+        lab = user.get("lab")
     else:
         # No configured users → deny login (secure default)
         return jsonify(error="authentication not configured", hint="set AUTH_USERS env"), 503
 
     claims = {"roles": roles}
+    if 'LabTech' in roles and lab:
+        claims['lab'] = lab
     token = create_access_token(identity=username, additional_claims=claims)
     return jsonify(access_token=token, roles=roles, username=username)
 
