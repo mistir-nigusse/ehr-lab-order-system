@@ -3,7 +3,7 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import or_
 from . import db
 from .modules.patient.orm import PatientORM
-from .modules.ehr.orm import EncounterORM, NoteORM
+from .modules.ehr.orm import EncounterORM, NoteORM, ProblemORM, AllergyORM, MedicationORM
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from .core.auth import require_roles, Role
 from .modules.orders.orm import OrderORM
@@ -48,8 +48,117 @@ def create_patient():
 
 
 @api_bp.get("/patients/<int:patient_id>/summary")
+@jwt_required()
 def patient_summary(patient_id: int):
-    return jsonify(error="Not Implemented", hint="FR-2 patient summary", patientId=patient_id), 501
+    # Only clinicians should view summaries
+    require_roles(Role.PHYSICIAN, Role.NURSE, Role.LAB_TECH)
+
+    patient = db.session.get(PatientORM, patient_id)
+    if not patient:
+        return jsonify(error="patient not found"), 404
+
+    # Recent notes (append-only) — latest 5
+    notes_q = (
+        db.session.query(NoteORM)
+        .filter(NoteORM.patient_id == patient_id)
+        .order_by(NoteORM.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    notes_recent = [
+        {
+            "id": n.id,
+            "encounterId": n.encounter_id,
+            "author": n.author,
+            "text": n.text,
+            "created_at": n.created_at.isoformat() if n.created_at else None,
+        }
+        for n in notes_q
+    ]
+
+    # Recent lab results — pick most recent per test_code (up to 10 total)
+    from sqlalchemy import func
+
+    res_q = (
+        db.session.query(LabResultORM, OrderORM, EncounterORM)
+        .join(OrderORM, LabResultORM.order_id == OrderORM.id)
+        .join(EncounterORM, OrderORM.encounter_id == EncounterORM.id)
+        .filter(EncounterORM.patient_id == patient_id)
+        .order_by(func.coalesce(LabResultORM.resulted_at, LabResultORM.received_at).desc())
+        .limit(50)
+        .all()
+    )
+    seen = set()
+    lab_results_recent = []
+    for r, o, e in res_q:
+        if r.test_code in seen:
+            continue
+        seen.add(r.test_code)
+        lab_results_recent.append(r.to_dict())
+        if len(lab_results_recent) >= 10:
+            break
+
+    # Load problems, medications, allergies (append-only lists)
+    problems = (
+        db.session.query(ProblemORM)
+        .filter(ProblemORM.patient_id == patient_id)
+        .order_by(ProblemORM.created_at.desc())
+        .all()
+    )
+    allergies = (
+        db.session.query(AllergyORM)
+        .filter(AllergyORM.patient_id == patient_id)
+        .order_by(AllergyORM.recorded_at.desc())
+        .all()
+    )
+    medications = (
+        db.session.query(MedicationORM)
+        .filter(MedicationORM.patient_id == patient_id)
+        .order_by(MedicationORM.start.desc().nullslast())
+        .all()
+    )
+
+    summary = {
+        "patient": patient.to_dict(),
+        "problems": [
+            {
+                "id": pr.id,
+                "code": pr.code,
+                "text": pr.text,
+                "active": pr.active,
+                "onset_date": pr.onset_date.isoformat() if pr.onset_date else None,
+                "author": pr.author,
+                "created_at": pr.created_at.isoformat() if pr.created_at else None,
+            }
+            for pr in problems
+        ],
+        "medications": [
+            {
+                "id": m.id,
+                "rx_code": m.rx_code,
+                "dose": m.dose,
+                "route": m.route,
+                "start": m.start.isoformat() if m.start else None,
+                "end": m.end.isoformat() if m.end else None,
+                "author": m.author,
+            }
+            for m in medications
+        ],
+        "allergies": [
+            {
+                "id": a.id,
+                "substance_code": a.substance_code,
+                "severity": a.severity,
+                "reaction": a.reaction,
+                "recorded_at": a.recorded_at.isoformat() if a.recorded_at else None,
+                "author": a.author,
+            }
+            for a in allergies
+        ],
+        "notes_recent": notes_recent,
+        "lab_results_recent": lab_results_recent,
+    }
+    return jsonify(summary)
 
 
 @api_bp.post("/encounters")
@@ -112,6 +221,116 @@ def append_note():
     db.session.add(note)
     db.session.commit()
     return jsonify(noteId=note.id), 201
+
+
+# EHR append-only clinical data
+@api_bp.post("/ehr/problems")
+@jwt_required()
+def add_problem():
+    require_roles(Role.PHYSICIAN, Role.NURSE)
+    data = request.get_json(force=True) or {}
+    patient_id = data.get("patientId")
+    code = (data.get("code") or None)
+    text = (data.get("text") or None)
+    active = data.get("active")
+    onset_date = data.get("onset_date") or None
+    author = (data.get("authorId") or get_jwt_identity() or None)
+
+    if not isinstance(patient_id, int):
+        return jsonify(error="patientId required"), 400
+    if active is None:
+        active = True
+    if onset_date:
+        try:
+            onset_date = datetime.fromisoformat(onset_date).date()
+        except ValueError:
+            return jsonify(error="invalid onset_date"), 400
+    if not db.session.get(PatientORM, patient_id):
+        return jsonify(error="patient not found"), 404
+
+    pr = ProblemORM(patient_id=patient_id, code=code, text=text, active=bool(active), onset_date=onset_date, author=author)
+    db.session.add(pr)
+    db.session.commit()
+    return jsonify(problemId=pr.id), 201
+
+
+@api_bp.post("/ehr/allergies")
+@jwt_required()
+def add_allergy():
+    require_roles(Role.PHYSICIAN, Role.NURSE)
+    data = request.get_json(force=True) or {}
+    patient_id = data.get("patientId")
+    substance_code = (data.get("substance_code") or None)
+    severity = (data.get("severity") or None)
+    reaction = (data.get("reaction") or None)
+    recorded_at = data.get("recorded_at") or None
+    author = (data.get("authorId") or get_jwt_identity() or None)
+
+    if not isinstance(patient_id, int):
+        return jsonify(error="patientId required"), 400
+    if recorded_at:
+        try:
+            recorded_at = datetime.fromisoformat(recorded_at)
+        except ValueError:
+            return jsonify(error="invalid recorded_at"), 400
+    if not db.session.get(PatientORM, patient_id):
+        return jsonify(error="patient not found"), 404
+
+    al = AllergyORM(
+        patient_id=patient_id,
+        substance_code=substance_code,
+        severity=severity,
+        reaction=reaction,
+        recorded_at=recorded_at,
+        author=author,
+    )
+    db.session.add(al)
+    db.session.commit()
+    return jsonify(allergyId=al.id), 201
+
+
+@api_bp.post("/ehr/medications")
+@jwt_required()
+def add_medication():
+    require_roles(Role.PHYSICIAN, Role.NURSE)
+    data = request.get_json(force=True) or {}
+    patient_id = data.get("patientId")
+    rx_code = (data.get("rx_code") or None)
+    dose = (data.get("dose") or None)
+    route = (data.get("route") or None)
+    start = data.get("start") or None
+    end = data.get("end") or None
+    author = (data.get("authorId") or get_jwt_identity() or None)
+
+    if not isinstance(patient_id, int):
+        return jsonify(error="patientId required"), 400
+    start_date = None
+    end_date = None
+    if start:
+        try:
+            start_date = datetime.fromisoformat(start).date()
+        except ValueError:
+            return jsonify(error="invalid start date"), 400
+    if end:
+        try:
+            end_date = datetime.fromisoformat(end).date()
+        except ValueError:
+            return jsonify(error="invalid end date"), 400
+    if not db.session.get(PatientORM, patient_id):
+        return jsonify(error="patient not found"), 404
+
+    med = MedicationORM(
+        patient_id=patient_id,
+        rx_code=rx_code,
+        dose=dose,
+        route=route,
+        start=start_date,
+        end=end_date,
+        author=author,
+    )
+    db.session.add(med)
+    db.session.commit()
+    return jsonify(medicationId=med.id), 201
 
 
 @api_bp.get("/patients/search")
