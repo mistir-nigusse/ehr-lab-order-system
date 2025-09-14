@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../lib/api'
+import { getRoles } from '../lib/auth'
 
 export default function PatientDetail() {
   const { id } = useParams()
@@ -30,6 +31,7 @@ export default function PatientDetail() {
 
   const [orderTests, setOrderTests] = useState('')
   const [orderMsg, setOrderMsg] = useState('')
+  const roles = getRoles()
 
   async function load() {
     try {
@@ -116,6 +118,8 @@ export default function PatientDetail() {
       const r = await api.placeOrder({ encounterId: eid, tests })
       setOrderMsg(`Order #${r.orderId} placed`)
       setOrderTests('')
+      // Navigate immediately to order detail for clarity
+      nav(`/orders/${r.orderId}`)
     } catch (e) { setOrderMsg(e.message) }
   }
 
@@ -229,7 +233,7 @@ export default function PatientDetail() {
             <label className="block text-sm text-gray-700">Tests (comma separated)</label>
             <input className="mt-1 w-full rounded border p-2" placeholder="CBC, BMP" value={orderTests} onChange={(e)=>setOrderTests(e.target.value)} />
             <div className="mt-2 flex items-center gap-2">
-              <button className="rounded border px-3 py-1 hover:bg-gray-50">Place Order</button>
+              <button className="rounded border px-3 py-1 hover:bg-gray-50" disabled={!roles.includes('Physician')}>Place Order</button>
               {orderMsg && <span className="text-sm text-gray-600">{orderMsg}</span>}
             </div>
           </form>

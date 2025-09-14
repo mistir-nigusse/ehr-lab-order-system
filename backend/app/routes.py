@@ -363,7 +363,7 @@ def search_patients():
 @api_bp.post("/orders/lab")
 @jwt_required()
 def place_lab_order():
-    require_roles(Role.PHYSICIAN, Role.NURSE)
+    require_roles(Role.PHYSICIAN)
     data = request.get_json(force=True) or {}
     encounter_id = data.get("encounterId")
     tests = data.get("tests")
@@ -390,13 +390,37 @@ def update_order_status(order_id: int):
     require_roles(Role.PHYSICIAN, Role.NURSE, Role.LAB_TECH)
     data = request.get_json(force=True) or {}
     status = (data.get("status") or "").strip().lower()
-    allowed = {"ordered", "collected", "in_progress", "resulted", "corrected"}
+    allowed = ["ordered", "collected", "in_progress", "resulted", "corrected"]
     if status not in allowed:
-        return jsonify(error=f"status must be one of {sorted(allowed)}"), 400
+        return jsonify(error=f"status must be one of {allowed}"), 400
 
     order = db.session.get(OrderORM, order_id)
     if not order:
         return jsonify(error="order not found"), 404
+
+    current = (order.status or "ordered").lower()
+    next_by_role = {
+        "Nurse": {"ordered": "collected"},
+        "LabTech": {
+            "ordered": "collected",
+            "collected": "in_progress",
+            "in_progress": "resulted",
+            "resulted": "corrected",
+        },
+        "Physician": {"ordered": "collected", "resulted": "corrected"},
+    }
+    from flask_jwt_extended import get_jwt
+    token_roles = get_jwt().get("roles", [])
+    allowed_next = set()
+    for r in token_roles:
+        nxt = next_by_role.get(r, {}).get(current)
+        if nxt:
+            allowed_next.add(nxt)
+    if not allowed_next:
+        return jsonify(error=f"no transition allowed from '{current}' for roles {token_roles}"), 403
+    if status not in allowed_next:
+        return jsonify(error=f"invalid transition from '{current}' to '{status}'", allowed=list(allowed_next)), 400
+
     order.status = status
     db.session.commit()
     return jsonify(ok=True)
@@ -419,11 +443,18 @@ def get_lab_order(order_id: int):
 
 
 @api_bp.post("/labs/results")
+@jwt_required(optional=True)
 def accept_lab_results():
-    # Optional shared-secret check for external lab callbacks
+    # Require either shared-secret or LabTech JWT
     shared = os.getenv("LABS_SHARED_SECRET")
+    from flask_jwt_extended import get_jwt
+    token_roles = []
+    try:
+        token_roles = get_jwt().get("roles", [])
+    except Exception:
+        token_roles = []
     if shared:
-        if request.headers.get("X-Labs-Secret") != shared:
+        if request.headers.get("X-Labs-Secret") != shared and "LabTech" not in token_roles:
             return jsonify(error="unauthorized"), 401
     data = request.get_json(force=True) or {}
     order_id = data.get("orderId")

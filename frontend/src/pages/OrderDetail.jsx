@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../lib/api'
+import { getRoles } from '../lib/auth'
 
 const statuses = ['ordered','collected','in_progress','resulted','corrected']
 
@@ -11,6 +12,20 @@ export default function OrderDetail() {
   const [results, setResults] = useState([])
   const [status, setStatus] = useState('')
   const [msg, setMsg] = useState('')
+  const roles = getRoles()
+
+  const allowedNext = useMemo(() => {
+    if (!order) return []
+    const current = (order.status || 'ordered')
+    const map = {
+      Nurse: { ordered: 'collected' },
+      LabTech: { ordered: 'collected', collected: 'in_progress', in_progress: 'resulted', resulted: 'corrected' },
+      Physician: { ordered: 'collected', resulted: 'corrected' },
+    }
+    const nextSet = new Set()
+    roles.forEach(r => { const nxt = map[r]?.[current]; if (nxt) nextSet.add(nxt) })
+    return Array.from(nextSet)
+  }, [order, roles])
 
   async function load() {
     const d = await api.getOrder(oid)
@@ -40,9 +55,9 @@ export default function OrderDetail() {
         <div className="mt-2 flex items-center gap-2">
           <form onSubmit={updateStatus} className="flex items-center gap-2">
             <select className="rounded border p-1" value={status} onChange={(e)=>setStatus(e.target.value)}>
-              {statuses.map(s => <option key={s}>{s}</option>)}
+              {statuses.map(s => <option key={s} disabled={!allowedNext.includes(s)}>{s}</option>)}
             </select>
-            <button className="rounded border px-3 py-1 hover:bg-gray-50">Update</button>
+            <button className="rounded border px-3 py-1 hover:bg-gray-50" disabled={!allowedNext.includes(status)}>Update</button>
           </form>
           {msg && <span className="text-sm text-gray-600">{msg}</span>}
         </div>
@@ -63,4 +78,3 @@ export default function OrderDetail() {
     </div>
   )
 }
-
