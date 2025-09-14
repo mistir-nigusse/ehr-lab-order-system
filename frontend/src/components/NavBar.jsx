@@ -21,7 +21,9 @@ export default function NavBar() {
           {(roles.includes('Physician') || roles.includes('Nurse')) && (
             <Link to="/patients" className="text-gray-700 hover:text-gray-900">Patients</Link>
           )}
-          <Link to="/labs" className="text-gray-700 hover:text-gray-900">Labs</Link>
+          {isAuthed() && roles.includes('LabTech') && (
+            <Link to="/labs" className="text-gray-700 hover:text-gray-900">Labs</Link>
+          )}
           {isAuthed() ? (
             <div className="flex items-center gap-3">
               {user && (
