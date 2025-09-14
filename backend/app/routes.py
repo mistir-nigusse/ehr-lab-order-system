@@ -1,4 +1,5 @@
 from datetime import datetime
+import os
 from flask import Blueprint, jsonify, request
 from sqlalchemy import or_
 from . import db
@@ -21,7 +22,9 @@ def ping():
 
 
 @api_bp.post("/patients")
+@jwt_required()
 def create_patient():
+    require_roles(Role.PHYSICIAN, Role.NURSE)
     data = request.get_json(force=True) or {}
     mrn = (data.get("mrn") or "").strip()
     name = (data.get("name") or "").strip()
@@ -334,7 +337,9 @@ def add_medication():
 
 
 @api_bp.get("/patients/search")
+@jwt_required()
 def search_patients():
+    require_roles(Role.PHYSICIAN, Role.NURSE, Role.LAB_TECH)
     q = (request.args.get("q", "") or "").strip()
     if not q:
         return jsonify([])
@@ -398,7 +403,9 @@ def update_order_status(order_id: int):
 
 
 @api_bp.get("/orders/lab/<int:order_id>")
+@jwt_required()
 def get_lab_order(order_id: int):
+    require_roles(Role.PHYSICIAN, Role.NURSE, Role.LAB_TECH)
     order = db.session.get(OrderORM, order_id)
     if not order:
         return jsonify(error="order not found"), 404
@@ -413,6 +420,11 @@ def get_lab_order(order_id: int):
 
 @api_bp.post("/labs/results")
 def accept_lab_results():
+    # Optional shared-secret check for external lab callbacks
+    shared = os.getenv("LABS_SHARED_SECRET")
+    if shared:
+        if request.headers.get("X-Labs-Secret") != shared:
+            return jsonify(error="unauthorized"), 401
     data = request.get_json(force=True) or {}
     order_id = data.get("orderId")
     results = data.get("results")
