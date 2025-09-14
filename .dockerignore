@@ -1,0 +1,9 @@
+.git
+node_modules
+frontend
+**/__pycache__
+**/*.pyc
+dist
+.DS_Store
+README.md
+render.yaml
