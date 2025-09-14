@@ -7,6 +7,9 @@ from .modules.ehr.orm import EncounterORM, NoteORM
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from .core.auth import require_roles, Role
 from .modules.orders.orm import OrderORM
+from .modules.labs.orm import LabResultORM
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+import hashlib, json
 
 api_bp = Blueprint("api", __name__)
 
@@ -180,11 +183,76 @@ def get_lab_order(order_id: int):
     order = db.session.get(OrderORM, order_id)
     if not order:
         return jsonify(error="order not found"), 404
-    # Results to be implemented in FR-7; return empty for now
-    return jsonify(order=order.to_dict(), results=[])
+    results = (
+        db.session.query(LabResultORM)
+        .filter(LabResultORM.order_id == order_id)
+        .order_by(LabResultORM.resulted_at.is_(None), LabResultORM.resulted_at.desc().nullslast())
+        .all()
+    )
+    return jsonify(order=order.to_dict(), results=[r.to_dict() for r in results])
 
 
 @api_bp.post("/labs/results")
 def accept_lab_results():
-    _ = request.get_json(silent=True)
-    return jsonify(error="Not Implemented", hint="FR-7 accept results"), 501
+    data = request.get_json(force=True) or {}
+    order_id = data.get("orderId")
+    results = data.get("results")
+
+    if not isinstance(order_id, int):
+        return jsonify(error="orderId required"), 400
+    if not isinstance(results, list) or not results:
+        return jsonify(error="results must be a non-empty array"), 400
+
+    order = db.session.get(OrderORM, order_id)
+    if not order:
+        return jsonify(error="order not found"), 404
+
+    # Prepare rows with digest for idempotency
+    inserted = 0
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        test_code = (item.get("test_code") or "").strip()
+        value = (item.get("value") or None)
+        units = (item.get("units") or None)
+        ref_range = (item.get("ref_range") or None)
+        status = (item.get("status") or None)
+        resulted_at = item.get("resulted_at") or None
+        if not test_code:
+            continue
+        # Canonicalize the payload relevant fields for digest
+        digest_input = json.dumps(
+            {
+                "test_code": test_code,
+                "value": value,
+                "units": units,
+                "ref_range": ref_range,
+                "status": status,
+                "resulted_at": resulted_at,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        digest = hashlib.sha256(digest_input.encode("utf-8")).hexdigest()
+
+        # Parse resulted_at if provided
+        ra = None
+        if resulted_at:
+            try:
+                ra = datetime.fromisoformat(resulted_at)
+            except ValueError:
+                ra = None
+
+        stmt = pg_insert(LabResultORM.__table__).values(
+            order_id=order_id,
+            test_code=test_code,
+            value=value,
+            units=units,
+            ref_range=ref_range,
+            status=status,
+            resulted_at=ra,
+            digest=digest,
+        ).on_conflict_do_nothing(constraint='uq_results_order_digest')
+        db.session.execute(stmt)
+    db.session.commit()
+    return jsonify(ok=True), 200
