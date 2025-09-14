@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ehr_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ehr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ehrpw}
+      POSTGRES_DB: ${POSTGRES_DB:-ehrdb}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ehr}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ehr_backend
+    env_file:
+      - .env
+    environment:
+      - FLASK_ENV=${FLASK_ENV:-development}
+      - FLASK_DEBUG=${FLASK_DEBUG:-1}
+      - JWT_SECRET=${JWT_SECRET:-dev-insecure-change-me}
+      - POSTGRES_USER=${POSTGRES_USER:-ehr}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-ehrpw}
+      - POSTGRES_DB=${POSTGRES_DB:-ehrdb}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+    volumes:
+      - ./backend:/app
+    ports:
+      - "5001:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ehr_frontend
+    env_file:
+      - .env
+    environment:
+      - VITE_API_BASE_URL=http://localhost:5001
+    volumes:
+      - ./frontend:/usr/src/app
+      - /usr/src/app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  db_data:
