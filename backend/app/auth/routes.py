@@ -42,6 +42,8 @@ def login():
 
     if not username or not password:
         return jsonify(error="username and password required"), 400
+    if len(password) < 6:
+        return jsonify(error="password must be at least 6 characters"), 400
 
     # If AUTH_USERS configured, enforce whitelist credentials
     if ALLOWED_USERS:

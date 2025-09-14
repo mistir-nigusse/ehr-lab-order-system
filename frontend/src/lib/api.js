@@ -30,7 +30,7 @@ async function request(path, { method = 'GET', body, headers = {}, auth = true }
 }
 
 export const api = {
-  login: (username, password, role) => request('/api/auth/login', { method: 'POST', body: { username, password, role }, auth: false }),
+  login: (username, password) => request('/api/auth/login', { method: 'POST', body: { username, password }, auth: false }),
 
   // Patients
   createPatient: (p) => request('/api/patients', { method: 'POST', body: p }),

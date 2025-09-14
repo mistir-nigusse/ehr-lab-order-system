@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
-import { setToken } from '../lib/auth'
+import { setToken, setUser } from '../lib/auth'
 
 export default function Login() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState('Physician')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const nav = useNavigate()
@@ -16,8 +15,9 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      const res = await api.login(username, password, role)
+      const res = await api.login(username, password)
       setToken(res.access_token)
+      setUser({ username: res.username, roles: res.roles || [] })
       nav('/patients')
     } catch (err) {
       setError(err.message || 'Login failed')
@@ -37,19 +37,11 @@ export default function Login() {
         </div>
         <div>
           <label className="block text-sm text-gray-700">Password</label>
-          <input type="password" className="mt-1 w-full rounded border p-2" value={password} onChange={(e)=>setPassword(e.target.value)} required />
-        </div>
-        <div>
-          <label className="block text-sm text-gray-700">Role</label>
-          <select className="mt-1 w-full rounded border p-2" value={role} onChange={(e)=>setRole(e.target.value)}>
-            <option>Physician</option>
-            <option>Nurse</option>
-            <option>LabTech</option>
-          </select>
+          <input type="password" minLength={6} className="mt-1 w-full rounded border p-2" value={password} onChange={(e)=>setPassword(e.target.value)} required />
         </div>
         <button disabled={loading} className="w-full rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50">{loading? 'Signing in...' : 'Sign in'}</button>
       </form>
+      <p className="mt-3 text-xs text-gray-500">Use predefined credentials. If you see an error, contact an admin to update allowed users.</p>
     </div>
   )
 }
-
