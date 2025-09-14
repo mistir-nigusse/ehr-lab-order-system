@@ -3,6 +3,9 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import or_
 from . import db
 from .modules.patient.orm import PatientORM
+from .modules.ehr.orm import EncounterORM, NoteORM
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from .core.auth import require_roles, Role
 
 api_bp = Blueprint("api", __name__)
 
@@ -46,15 +49,65 @@ def patient_summary(patient_id: int):
 
 
 @api_bp.post("/encounters")
+@jwt_required()
 def create_encounter():
-    _ = request.get_json(silent=True)
-    return jsonify(error="Not Implemented", hint="FR-3 create encounter"), 501
+    require_roles(Role.PHYSICIAN, Role.NURSE)
+    data = request.get_json(force=True) or {}
+    patient_id = data.get("patientId")
+    enc_type = (data.get("type") or "").strip().upper()
+    started_at = data.get("started_at")
+
+    if not isinstance(patient_id, int):
+        return jsonify(error="patientId required"), 400
+    if enc_type not in {"OUT", "ER", "IN"}:
+        return jsonify(error="type must be one of OUT|ER|IN"), 400
+
+    # Validate patient exists
+    if not db.session.get(PatientORM, patient_id):
+        return jsonify(error="patient not found"), 404
+
+    started = None
+    if started_at:
+        try:
+            started = datetime.fromisoformat(started_at)
+        except ValueError:
+            return jsonify(error="invalid started_at"), 400
+
+    enc = EncounterORM(patient_id=patient_id, type=enc_type, started_at=started or datetime.utcnow())
+    db.session.add(enc)
+    db.session.commit()
+    return jsonify(encounterId=enc.id), 201
 
 
 @api_bp.post("/ehr/notes")
+@jwt_required()
 def append_note():
-    _ = request.get_json(silent=True)
-    return jsonify(error="Not Implemented", hint="FR-3 append-only notes"), 501
+    require_roles(Role.PHYSICIAN, Role.NURSE)
+    data = request.get_json(force=True) or {}
+    patient_id = data.get("patientId")
+    encounter_id = data.get("encounterId")
+    text = (data.get("text") or "").strip()
+    author = (data.get("authorId") or get_jwt_identity() or "").strip()
+
+    if not isinstance(patient_id, int) or not isinstance(encounter_id, int):
+        return jsonify(error="patientId and encounterId required"), 400
+    if not text:
+        return jsonify(error="text required"), 400
+    if not author:
+        return jsonify(error="author required"), 400
+
+    # Validate patient and encounter exist and match
+    p = db.session.get(PatientORM, patient_id)
+    if not p:
+        return jsonify(error="patient not found"), 404
+    enc = db.session.get(EncounterORM, encounter_id)
+    if not enc or enc.patient_id != patient_id:
+        return jsonify(error="encounter not found or mismatched patient"), 404
+
+    note = NoteORM(patient_id=patient_id, encounter_id=encounter_id, author=author, text=text)
+    db.session.add(note)
+    db.session.commit()
+    return jsonify(noteId=note.id), 201
 
 
 @api_bp.get("/patients/search")
