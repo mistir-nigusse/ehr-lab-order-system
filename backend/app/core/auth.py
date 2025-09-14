@@ -1,4 +1,6 @@
 from enum import Enum
+from flask import abort
+from flask_jwt_extended import get_jwt
 
 
 class Role(str, Enum):
@@ -21,3 +23,12 @@ class AuthContext:
     def has_role(self, role: Role) -> bool:
         return role in self.roles
 
+
+def require_roles(*allowed: Role):
+    """
+    for inline checks inside route handlers.
+    """
+    claims = get_jwt()
+    token_roles = set(claims.get("roles", []))
+    if not token_roles.intersection({r.value for r in allowed}):
+        abort(403, description="insufficient role")
