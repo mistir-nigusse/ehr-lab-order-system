@@ -5,7 +5,7 @@ import Patients from './pages/Patients'
 import PatientDetail from './pages/PatientDetail'
 import OrderDetail from './pages/OrderDetail'
 import Labs from './pages/Labs'
-import { isAuthed } from './lib/auth'
+import { isAuthed } from './lib/auth.js'
 
 function RequireAuth({ children }) {
   const loc = useLocation()
