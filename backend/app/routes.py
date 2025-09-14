@@ -1,7 +1,4 @@
-from datetime import datetime
 from flask import Blueprint, jsonify, request
-from . import db
-from .models import Patient
 
 api_bp = Blueprint("api", __name__)
 
@@ -11,40 +8,55 @@ def ping():
     return jsonify(message="pong"), 200
 
 
+
 @api_bp.post("/patients")
 def create_patient():
-    data = request.get_json(force=True)
-    mrn = data.get("mrn")
-    name = data.get("name")
-    dob = data.get("dob")
-    gender = data.get("gender")
-    if not mrn or not name:
-        return jsonify(error="mrn and name are required"), 400
-    if Patient.query.filter_by(mrn=mrn).first():
-        return jsonify(error="mrn already exists"), 409
-    try:
-        dob_parsed = datetime.fromisoformat(dob).date() if dob else None
-    except ValueError:
-        return jsonify(error="invalid dob format"), 400
-    patient = Patient(mrn=mrn, name=name, dob=dob_parsed, gender=gender)
-    db.session.add(patient)
-    db.session.commit()
-    return jsonify(patientId=patient.id), 201
+    _ = request.get_json(silent=True)
+    return jsonify(error="Not Implemented", hint="FR-1 create patient"), 501
+
+
+@api_bp.get("/patients/<int:patient_id>/summary")
+def patient_summary(patient_id: int):
+    return jsonify(error="Not Implemented", hint="FR-2 patient summary", patientId=patient_id), 501
+
+
+@api_bp.post("/encounters")
+def create_encounter():
+    _ = request.get_json(silent=True)
+    return jsonify(error="Not Implemented", hint="FR-3 create encounter"), 501
+
+
+@api_bp.post("/ehr/notes")
+def append_note():
+    _ = request.get_json(silent=True)
+    return jsonify(error="Not Implemented", hint="FR-3 append-only notes"), 501
 
 
 @api_bp.get("/patients/search")
 def search_patients():
-    q = request.args.get("q", "").strip()
-    if not q:
-        return jsonify([])
-    # exact by id
-    if q.isdigit():
-        p = Patient.query.get(int(q))
-        if p:
-            return jsonify([p.to_dict()])
-    # fuzzy by name or mrn contains
-    results = Patient.query.filter(
-        db.or_(Patient.name.ilike(f"%{q}%"), Patient.mrn.ilike(f"%{q}%"))
-    ).limit(20)
-    return jsonify([p.to_dict() for p in results])
+    _ = request.args.get("q", "")
+    return jsonify(error="Not Implemented", hint="FR-4 search"), 501
 
+
+# Orders & Labs
+@api_bp.post("/orders/lab")
+def place_lab_order():
+    _ = request.get_json(silent=True)
+    return jsonify(error="Not Implemented", hint="FR-5 place lab order"), 501
+
+
+@api_bp.patch("/orders/lab/<int:order_id>/status")
+def update_order_status(order_id: int):
+    _ = request.get_json(silent=True)
+    return jsonify(error="Not Implemented", hint="FR-6 update status", orderId=order_id), 501
+
+
+@api_bp.get("/orders/lab/<int:order_id>")
+def get_lab_order(order_id: int):
+    return jsonify(error="Not Implemented", hint="FR-6/FR-7 get order", orderId=order_id), 501
+
+
+@api_bp.post("/labs/results")
+def accept_lab_results():
+    _ = request.get_json(silent=True)
+    return jsonify(error="Not Implemented", hint="FR-7 accept results"), 501
