@@ -6,6 +6,7 @@ from .modules.patient.orm import PatientORM
 from .modules.ehr.orm import EncounterORM, NoteORM
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from .core.auth import require_roles, Role
+from .modules.orders.orm import OrderORM
 
 api_bp = Blueprint("api", __name__)
 
@@ -133,20 +134,54 @@ def search_patients():
 
 # Orders & Labs
 @api_bp.post("/orders/lab")
+@jwt_required()
 def place_lab_order():
-    _ = request.get_json(silent=True)
-    return jsonify(error="Not Implemented", hint="FR-5 place lab order"), 501
+    require_roles(Role.PHYSICIAN, Role.NURSE)
+    data = request.get_json(force=True) or {}
+    encounter_id = data.get("encounterId")
+    tests = data.get("tests")
+
+    if not isinstance(encounter_id, int):
+        return jsonify(error="encounterId required"), 400
+    if not isinstance(tests, list) or not all(isinstance(t, str) and t.strip() for t in tests):
+        return jsonify(error="tests must be a non-empty array of strings"), 400
+
+    enc = db.session.get(EncounterORM, encounter_id)
+    if not enc:
+        return jsonify(error="encounter not found"), 404
+
+    ordered_by = get_jwt_identity() or None
+    order = OrderORM(encounter_id=encounter_id, tests=[t.strip() for t in tests], ordered_by=ordered_by)
+    db.session.add(order)
+    db.session.commit()
+    return jsonify(orderId=order.id), 201
 
 
 @api_bp.patch("/orders/lab/<int:order_id>/status")
+@jwt_required()
 def update_order_status(order_id: int):
-    _ = request.get_json(silent=True)
-    return jsonify(error="Not Implemented", hint="FR-6 update status", orderId=order_id), 501
+    require_roles(Role.PHYSICIAN, Role.NURSE, Role.LAB_TECH)
+    data = request.get_json(force=True) or {}
+    status = (data.get("status") or "").strip().lower()
+    allowed = {"ordered", "collected", "in_progress", "resulted", "corrected"}
+    if status not in allowed:
+        return jsonify(error=f"status must be one of {sorted(allowed)}"), 400
+
+    order = db.session.get(OrderORM, order_id)
+    if not order:
+        return jsonify(error="order not found"), 404
+    order.status = status
+    db.session.commit()
+    return jsonify(ok=True)
 
 
 @api_bp.get("/orders/lab/<int:order_id>")
 def get_lab_order(order_id: int):
-    return jsonify(error="Not Implemented", hint="FR-6/FR-7 get order", orderId=order_id), 501
+    order = db.session.get(OrderORM, order_id)
+    if not order:
+        return jsonify(error="order not found"), 404
+    # Results to be implemented in FR-7; return empty for now
+    return jsonify(order=order.to_dict(), results=[])
 
 
 @api_bp.post("/labs/results")
