@@ -29,9 +29,11 @@ def create_app():
     jwt.init_app(app)
 
     from .routes import api_bp
+    from .auth import bp as auth_bp
 
     # Core API
     app.register_blueprint(api_bp, url_prefix="/api")
+    app.register_blueprint(auth_bp, url_prefix="/api/auth")
 
     try:
         from .modules.patient import bp as patient_bp
