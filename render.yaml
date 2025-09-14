@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: ehr-backend
+    env: docker
+    plan: free
+    dockerfilePath: backend/Dockerfile
+    buildContext: backend
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: FLASK_ENV
+        value: production
+      - key: FLASK_DEBUG
+        value: "0"
+      - key: LABS_SHARED_SECRET
+        sync: false
+
