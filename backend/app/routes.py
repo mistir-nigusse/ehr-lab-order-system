@@ -407,6 +407,7 @@ def place_lab_order():
     data = request.get_json(force=True) or {}
     encounter_id = data.get("encounterId")
     tests = data.get("tests")
+    lab_code = (data.get("labCode") or os.getenv("DEFAULT_LAB_CODE") or "LAB").strip()
 
     if not isinstance(encounter_id, int):
         return jsonify(error="encounterId required"), 400
@@ -418,7 +419,7 @@ def place_lab_order():
         return jsonify(error="encounter not found"), 404
 
     ordered_by = get_jwt_identity() or None
-    order = OrderORM(encounter_id=encounter_id, tests=[t.strip() for t in tests], ordered_by=ordered_by)
+    order = OrderORM(encounter_id=encounter_id, tests=[t.strip() for t in tests], ordered_by=ordered_by, lab_code=lab_code)
     db.session.add(order)
     db.session.commit()
     return jsonify(orderId=order.id), 201
@@ -437,6 +438,14 @@ def update_order_status(order_id: int):
     order = db.session.get(OrderORM, order_id)
     if not order:
         return jsonify(error="order not found"), 404
+    # LabTech can only modify orders of their lab
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    token_roles = claims.get("roles", [])
+    if "LabTech" in token_roles:
+        lab = claims.get("lab")
+        if lab and order.lab_code != lab:
+            return jsonify(error="forbidden for this lab"), 403
 
     current = (order.status or "ordered").lower()
     next_by_role = {
@@ -473,6 +482,13 @@ def get_lab_order(order_id: int):
     order = db.session.get(OrderORM, order_id)
     if not order:
         return jsonify(error="order not found"), 404
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    token_roles = claims.get("roles", [])
+    if "LabTech" in token_roles:
+        lab = claims.get("lab")
+        if lab and order.lab_code != lab:
+            return jsonify(error="forbidden for this lab"), 403
     results = (
         db.session.query(LabResultORM)
         .filter(LabResultORM.order_id == order_id)
@@ -482,35 +498,36 @@ def get_lab_order(order_id: int):
     return jsonify(order=order.to_dict(), results=[r.to_dict() for r in results])
 
 
-@api_bp.post("/labs/results")
-@jwt_required(optional=True)
-def accept_lab_results():
-    # Require either shared-secret or LabTech JWT
-    shared = os.getenv("LABS_SHARED_SECRET")
+@api_bp.get("/labs/orders")
+@jwt_required()
+def labs_list_orders():
+    require_roles(Role.LAB_TECH)
     from flask_jwt_extended import get_jwt
-    token_roles = []
-    try:
-        token_roles = get_jwt().get("roles", [])
-    except Exception:
-        token_roles = []
-    if shared:
-        if request.headers.get("X-Labs-Secret") != shared and "LabTech" not in token_roles:
-            return jsonify(error="unauthorized"), 401
-    data = request.get_json(force=True) or {}
-    order_id = data.get("orderId")
-    results = data.get("results")
+    lab = get_jwt().get("lab")
+    if not lab:
+        return jsonify([])
+    orders = db.session.query(OrderORM).filter(OrderORM.lab_code == lab).order_by(OrderORM.placed_at.desc()).limit(200).all()
+    return jsonify([o.to_dict() for o in orders])
 
-    if not isinstance(order_id, int):
-        return jsonify(error="orderId required"), 400
-    if not isinstance(results, list) or not results:
-        return jsonify(error="results must be a non-empty array"), 400
 
+@api_bp.post("/orders/lab/<int:order_id>/results")
+@jwt_required()
+def create_results(order_id: int):
+    require_roles(Role.LAB_TECH)
     order = db.session.get(OrderORM, order_id)
     if not order:
         return jsonify(error="order not found"), 404
+    from flask_jwt_extended import get_jwt
+    lab = get_jwt().get("lab")
+    if lab and order.lab_code != lab:
+        return jsonify(error="forbidden for this lab"), 403
+    data = request.get_json(force=True) or {}
+    results = data.get("results")
 
-    # Prepare rows with digest for idempotency
-    inserted = 0
+    if not isinstance(results, list) or not results:
+        return jsonify(error="results must be a non-empty array"), 400
+
+    created_ids = []
     for item in results:
         if not isinstance(item, dict):
             continue
@@ -522,21 +539,6 @@ def accept_lab_results():
         resulted_at = item.get("resulted_at") or None
         if not test_code:
             continue
-        # Canonicalize the payload relevant fields for digest
-        digest_input = json.dumps(
-            {
-                "test_code": test_code,
-                "value": value,
-                "units": units,
-                "ref_range": ref_range,
-                "status": status,
-                "resulted_at": resulted_at,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        digest = hashlib.sha256(digest_input.encode("utf-8")).hexdigest()
-
         # Parse resulted_at if provided
         ra = None
         if resulted_at:
@@ -544,17 +546,55 @@ def accept_lab_results():
                 ra = datetime.fromisoformat(resulted_at)
             except ValueError:
                 ra = None
-
-        stmt = pg_insert(LabResultORM.__table__).values(
-            order_id=order_id,
-            test_code=test_code,
-            value=value,
-            units=units,
-            ref_range=ref_range,
-            status=status,
-            resulted_at=ra,
-            digest=digest,
-        ).on_conflict_do_nothing(constraint='uq_results_order_digest')
-        db.session.execute(stmt)
+        r = LabResultORM(order_id=order_id, test_code=test_code, value=value, units=units, ref_range=ref_range, status=status, resulted_at=ra, digest="manual")
+        db.session.add(r)
+        db.session.flush()
+        created_ids.append(r.id)
     db.session.commit()
-    return jsonify(ok=True), 200
+    return jsonify(ok=True, resultIds=created_ids), 201
+
+
+@api_bp.patch("/orders/lab/<int:order_id>/results/<int:result_id>")
+@jwt_required()
+def update_result(order_id: int, result_id: int):
+    require_roles(Role.LAB_TECH)
+    order = db.session.get(OrderORM, order_id)
+    if not order:
+        return jsonify(error="order not found"), 404
+    from flask_jwt_extended import get_jwt
+    lab = get_jwt().get("lab")
+    if lab and order.lab_code != lab:
+        return jsonify(error="forbidden for this lab"), 403
+    r = db.session.query(LabResultORM).filter(LabResultORM.id == result_id, LabResultORM.order_id == order_id).first()
+    if not r:
+        return jsonify(error="result not found"), 404
+    data = request.get_json(force=True) or {}
+    for field in ["value", "units", "ref_range", "status"]:
+        if field in data:
+            setattr(r, field, data.get(field))
+    if "resulted_at" in data:
+        try:
+            r.resulted_at = datetime.fromisoformat(data.get("resulted_at")) if data.get("resulted_at") else None
+        except ValueError:
+            return jsonify(error="invalid resulted_at"), 400
+    db.session.commit()
+    return jsonify(ok=True)
+
+
+@api_bp.delete("/orders/lab/<int:order_id>/results/<int:result_id>")
+@jwt_required()
+def delete_result(order_id: int, result_id: int):
+    require_roles(Role.LAB_TECH)
+    order = db.session.get(OrderORM, order_id)
+    if not order:
+        return jsonify(error="order not found"), 404
+    from flask_jwt_extended import get_jwt
+    lab = get_jwt().get("lab")
+    if lab and order.lab_code != lab:
+        return jsonify(error="forbidden for this lab"), 403
+    r = db.session.query(LabResultORM).filter(LabResultORM.id == result_id, LabResultORM.order_id == order_id).first()
+    if not r:
+        return jsonify(error="result not found"), 404
+    db.session.delete(r)
+    db.session.commit()
+    return jsonify(ok=True)

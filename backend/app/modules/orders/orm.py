@@ -14,6 +14,7 @@ class OrderORM(db.Model):
         nullable=False,
         index=True,
     )
+    lab_code = db.Column(db.String(64), nullable=True, index=True)
     tests = db.Column(JSONB, nullable=False)
     status = db.Column(db.String(16), nullable=False, default="ordered")
     ordered_by = db.Column(db.String(128), nullable=True)
@@ -23,9 +24,9 @@ class OrderORM(db.Model):
         return {
             "id": self.id,
             "encounter_id": self.encounter_id,
+            "lab_code": self.lab_code,
             "tests": self.tests,
             "status": self.status,
             "ordered_by": self.ordered_by,
             "placed_at": self.placed_at.isoformat() if self.placed_at else None,
         }
-
