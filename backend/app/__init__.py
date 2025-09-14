@@ -28,16 +28,35 @@ def create_app():
     db.init_app(app)
     jwt.init_app(app)
 
-    from .models import Patient  # noqa: F401
     from .routes import api_bp
 
+    # Core API
     app.register_blueprint(api_bp, url_prefix="/api")
+
+    try:
+        from .modules.patient import bp as patient_bp
+        app.register_blueprint(patient_bp, url_prefix="/api/patient")
+    except Exception:
+        pass
+    try:
+        from .modules.ehr import bp as ehr_bp
+        app.register_blueprint(ehr_bp, url_prefix="/api/ehr")
+    except Exception:
+        pass
+    try:
+        from .modules.orders import bp as orders_bp
+        app.register_blueprint(orders_bp, url_prefix="/api/orders")
+    except Exception:
+        pass
+    try:
+        from .modules.labs import bp as labs_bp
+        app.register_blueprint(labs_bp, url_prefix="/api/labs")
+    except Exception:
+        pass
 
     @app.get("/health")
     def health():
         return jsonify(status="ok"), 200
 
-    with app.app_context():
-        db.create_all()
 
     return app
