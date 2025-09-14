@@ -164,6 +164,46 @@ def patient_summary(patient_id: int):
     return jsonify(summary)
 
 
+@api_bp.get("/patients")
+@jwt_required()
+def list_patients():
+    # Only clinicians (Physician/Nurse) list patients
+    require_roles(Role.PHYSICIAN, Role.NURSE)
+    items = (
+        db.session.query(PatientORM)
+        .order_by(PatientORM.id.desc())
+        .limit(200)
+        .all()
+    )
+    data = []
+    for p in items:
+        enc = (
+            db.session.query(EncounterORM)
+            .filter(EncounterORM.patient_id == p.id)
+            .order_by(EncounterORM.started_at.desc())
+            .first()
+        )
+        data.append({**p.to_dict(), "latestEncounterType": enc.type if enc else None})
+    return jsonify(data)
+
+
+@api_bp.get("/patients/<int:patient_id>/orders")
+@jwt_required()
+def list_patient_orders(patient_id: int):
+    # All clinical roles can view patient orders
+    require_roles(Role.PHYSICIAN, Role.NURSE, Role.LAB_TECH)
+    if not db.session.get(PatientORM, patient_id):
+        return jsonify(error="patient not found"), 404
+    orders = (
+        db.session.query(OrderORM)
+        .join(EncounterORM, OrderORM.encounter_id == EncounterORM.id)
+        .filter(EncounterORM.patient_id == patient_id)
+        .order_by(OrderORM.placed_at.desc())
+        .all()
+    )
+    return jsonify([o.to_dict() for o in orders])
+
+
 @api_bp.post("/encounters")
 @jwt_required()
 def create_encounter():

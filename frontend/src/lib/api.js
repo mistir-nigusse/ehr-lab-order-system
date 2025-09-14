@@ -34,8 +34,10 @@ export const api = {
 
   // Patients
   createPatient: (p) => request('/api/patients', { method: 'POST', body: p }),
+  listPatients: () => request('/api/patients'),
   searchPatients: (q) => request(`/api/patients/search?q=${encodeURIComponent(q)}`),
   getPatientSummary: (id) => request(`/api/patients/${id}/summary`),
+  getPatientOrders: (id) => request(`/api/patients/${id}/orders`),
 
   // EHR
   createEncounter: (payload) => request('/api/encounters', { method: 'POST', body: payload }),
