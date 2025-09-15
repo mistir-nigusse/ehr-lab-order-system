@@ -17,8 +17,10 @@ export default function Login() {
     try {
       const res = await api.login(username, password)
       setToken(res.access_token)
-      setUser({ username: res.username, roles: res.roles || [] })
-      nav('/patients')
+      const roles = res.roles || []
+      setUser({ username: res.username, roles })
+      if (roles.includes('LabTech')) nav('/labs')
+      else nav('/patients')
     } catch (err) {
       setError(err.message || 'Login failed')
     } finally {

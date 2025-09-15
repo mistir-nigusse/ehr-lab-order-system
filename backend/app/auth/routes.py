@@ -21,14 +21,30 @@ def _load_allowed_users():
         if len(parts) not in (3, 4):
             continue
         u, p, role = parts[0], parts[1], parts[2]
-        try:
-            role_value = Role(role).value
-        except Exception:
-            # skip invalid role labels
-            continue
+        # accept case-insensitive and a few synonyms
+        role_key = (role or "").strip().lower()
+        role_map = {
+            "physician": Role.PHYSICIAN,
+            "doctor": Role.PHYSICIAN,
+            "md": Role.PHYSICIAN,
+            "nurse": Role.NURSE,
+            "labtech": Role.LAB_TECH,
+            "lab": Role.LAB_TECH,
+            "lab_tech": Role.LAB_TECH,
+        }
+        role_obj = role_map.get(role_key)
+        if not role_obj:
+            try:
+                role_obj = Role(role)
+            except Exception:
+                continue
+        role_value = role_obj.value
         entry = {"password": p, "roles": [role_value]}
-        if len(parts) == 4 and role_value == Role.LAB_TECH.value:
-            entry["lab"] = parts[3]
+        if role_value == Role.LAB_TECH.value:
+            # optional 4th part is lab code; else default to env
+            lab_code = parts[3] if len(parts) == 4 else os.getenv("DEFAULT_LAB_CODE", "LAB")
+            if lab_code:
+                entry["lab"] = lab_code
         users[u] = entry
     return users
 

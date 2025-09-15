@@ -420,6 +420,8 @@ def place_lab_order():
 
     ordered_by = get_jwt_identity() or None
     order = OrderORM(encounter_id=encounter_id, tests=[t.strip() for t in tests], ordered_by=ordered_by, lab_code=lab_code)
+    # Default new orders to 'collected' per requirement (sample collected at submission)
+    order.status = "collected"
     db.session.add(order)
     db.session.commit()
     return jsonify(orderId=order.id), 201

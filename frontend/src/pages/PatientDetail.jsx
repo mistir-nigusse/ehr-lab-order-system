@@ -133,6 +133,7 @@ export default function PatientDetail() {
       <h1 className="text-xl font-semibold">{summary.patient.name} <span className="text-sm font-normal text-gray-600">(MRN: {summary.patient.mrn})</span></h1>
 
       <div className="mt-6 grid gap-6 md:grid-cols-2">
+        {(roles.includes('Physician') || roles.includes('Nurse')) && (
         <div className="rounded border bg-white p-4 shadow-sm">
           <h2 className="font-medium">Encounter & Notes</h2>
           <form onSubmit={startEncounter} className="mt-3 flex items-end gap-2">
@@ -169,7 +170,9 @@ export default function PatientDetail() {
             </ul>
           </div>
         </div>
+        )}
 
+        {(roles.includes('Physician') || roles.includes('Nurse')) && (
         <div className="rounded border bg-white p-4 shadow-sm">
           <h2 className="font-medium">Clinical Data</h2>
           {ehrMsg && <p className="mt-1 text-sm text-gray-600">{ehrMsg}</p>}
@@ -226,17 +229,20 @@ export default function PatientDetail() {
             </ul>
           </div>
         </div>
+        )}
 
         <div className="rounded border bg-white p-4 shadow-sm">
           <h2 className="font-medium">Orders</h2>
-          <form onSubmit={placeOrder} className="mt-3">
-            <label className="block text-sm text-gray-700">Tests (comma separated)</label>
-            <input className="mt-1 w-full rounded border p-2" placeholder="CBC, BMP" value={orderTests} onChange={(e)=>setOrderTests(e.target.value)} />
-            <div className="mt-2 flex items-center gap-2">
-              <button className="rounded border px-3 py-1 hover:bg-gray-50" disabled={!roles.includes('Physician')}>Place Order</button>
-              {orderMsg && <span className="text-sm text-gray-600">{orderMsg}</span>}
-            </div>
-          </form>
+          {roles.includes('Physician') && (
+            <form onSubmit={placeOrder} className="mt-3">
+              <label className="block text-sm text-gray-700">Tests (comma separated)</label>
+              <input className="mt-1 w-full rounded border p-2" placeholder="CBC, BMP" value={orderTests} onChange={(e)=>setOrderTests(e.target.value)} />
+              <div className="mt-2 flex items-center gap-2">
+                <button className="rounded border px-3 py-1 hover:bg-gray-50">Place Order</button>
+                {orderMsg && <span className="text-sm text-gray-600">{orderMsg}</span>}
+              </div>
+            </form>
+          )}
 
           <div className="mt-4">
             <h3 className="text-sm font-medium">Recent Lab Results</h3>
