@@ -9,6 +9,7 @@ export default function Patients() {
   const [dob, setDob] = useState('')
   const [gender, setGender] = useState('')
   const [formMsg, setFormMsg] = useState('')
+  const [showCreate, setShowCreate] = useState(false)
 
   const [q, setQ] = useState('')
   const [results, setResults] = useState([])
@@ -46,6 +47,9 @@ export default function Patients() {
       const p = await api.createPatient({ mrn, name, dob: dob || undefined, gender: gender || undefined })
       setFormMsg(`Created patient #${p.patientId}`)
       setMrn(''); setName(''); setDob(''); setGender('')
+      // refresh list and close form
+      try { const lst = await api.listPatients(); setList(lst) } catch {}
+      setShowCreate(false)
     } catch (e) {
       setFormMsg(e.message || 'Create failed')
     }
@@ -53,7 +57,14 @@ export default function Patients() {
 
   return (
     <div className="mx-auto max-w-6xl p-6">
-      <h1 className="text-xl font-semibold">Patients</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Patients</h1>
+        {(roles.includes('Physician') || roles.includes('Nurse')) && (
+          <button onClick={()=>setShowCreate(v=>!v)} className="rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700">
+            {showCreate ? 'Close' : 'Add Patient'}
+          </button>
+        )}
+      </div>
 
       {(roles.includes('Physician') || roles.includes('Nurse')) ? (
         <div className="mt-4 overflow-x-auto rounded border bg-white">
@@ -88,7 +99,7 @@ export default function Patients() {
       )}
 
       <div className="mt-6 grid gap-6 md:grid-cols-2">
-        {(roles.includes('Physician') || roles.includes('Nurse')) && (
+        {(roles.includes('Physician') || roles.includes('Nurse')) && showCreate && (
         <form onSubmit={create} className="rounded border bg-white p-4 shadow-sm">
           <h2 className="font-medium">Create Patient</h2>
           {formMsg && <p className="mt-2 text-sm text-gray-600">{formMsg}</p>}
@@ -111,7 +122,10 @@ export default function Patients() {
                 <input value={gender} onChange={(e)=>setGender(e.target.value)} className="mt-1 w-full rounded border p-2" />
               </div>
             </div>
-            <button className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">Create</button>
+            <div className="flex items-center gap-2">
+              <button className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">Create</button>
+              <button type="button" onClick={()=>setShowCreate(false)} className="rounded border px-4 py-2 hover:bg-gray-50">Cancel</button>
+            </div>
           </div>
         </form>
         )}
