@@ -39,6 +39,12 @@ export const api = {
   getPatientSummary: (id) => request(`/api/patients/${id}/summary`),
   getPatientOrders: (id) => request(`/api/patients/${id}/orders`),
 
+  // Labs
+  listLabOrders: () => request('/api/labs/orders'),
+  createResults: (orderId, results) => request(`/api/orders/lab/${orderId}/results`, { method: 'POST', body: { results } }),
+  updateResult: (orderId, resultId, body) => request(`/api/orders/lab/${orderId}/results/${resultId}`, { method: 'PATCH', body }),
+  deleteResult: (orderId, resultId) => request(`/api/orders/lab/${orderId}/results/${resultId}`, { method: 'DELETE' }),
+
   // EHR
   createEncounter: (payload) => request('/api/encounters', { method: 'POST', body: payload }),
   appendNote: (payload) => request('/api/ehr/notes', { method: 'POST', body: payload }),

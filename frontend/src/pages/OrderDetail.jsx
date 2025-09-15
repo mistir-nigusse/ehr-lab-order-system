@@ -14,6 +14,15 @@ export default function OrderDetail() {
   const [msg, setMsg] = useState('')
   const roles = getRoles()
 
+  // New result state (LabTech only)
+  const [testCode, setTestCode] = useState('')
+  const [value, setValue] = useState('')
+  const [units, setUnits] = useState('')
+  const [addMsg, setAddMsg] = useState('')
+  const [editRow, setEditRow] = useState(null)
+  const [editValue, setEditValue] = useState('')
+  const [editUnits, setEditUnits] = useState('')
+
   const allowedNext = useMemo(() => {
     if (!order) return []
     const current = (order.status || 'ordered')
@@ -66,11 +75,40 @@ export default function OrderDetail() {
 
       <div className="mt-6 rounded border bg-white p-4 shadow-sm">
         <h2 className="font-medium">Results</h2>
+        {roles.includes('LabTech') && (
+          <form onSubmit={async (e)=>{e.preventDefault(); setAddMsg(''); try{ await api.createResults(oid, [{ test_code: testCode, value, units }]); setTestCode(''); setValue(''); setUnits(''); setAddMsg('Result added'); await load(); }catch(err){ setAddMsg(err.message||'Failed to add') } }} className="mt-3 grid grid-cols-4 gap-2">
+            <input className="rounded border p-2" placeholder="Test code" value={testCode} onChange={(e)=>setTestCode(e.target.value)} required />
+            <input className="rounded border p-2" placeholder="Value" value={value} onChange={(e)=>setValue(e.target.value)} required />
+            <input className="rounded border p-2" placeholder="Units" value={units} onChange={(e)=>setUnits(e.target.value)} />
+            <button className="rounded border px-3 py-1 hover:bg-gray-50">Add Result</button>
+          </form>
+        )}
+        {addMsg && <div className="mt-1 text-sm text-gray-600">{addMsg}</div>}
         <ul className="mt-2 space-y-2 text-sm">
           {results.map(r => (
             <li key={r.id} className="rounded border p-2">
-              <div>{r.test_code} = {r.value} {r.units || ''}</div>
-              <div className="text-gray-500">Resulted: {r.resulted_at || r.received_at}</div>
+              {editRow === r.id && roles.includes('LabTech') ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-600">{r.test_code}</span>
+                  <input className="rounded border p-1" value={editValue} onChange={(e)=>setEditValue(e.target.value)} placeholder="Value" />
+                  <input className="rounded border p-1" value={editUnits} onChange={(e)=>setEditUnits(e.target.value)} placeholder="Units" />
+                  <button className="rounded border px-2 py-1" onClick={async ()=>{ try{ await api.updateResult(oid, r.id, { value: editValue, units: editUnits }); setEditRow(null); await load(); }catch(e){ setMsg(e.message) } }}>Save</button>
+                  <button className="rounded border px-2 py-1" onClick={()=>setEditRow(null)}>Cancel</button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div>{r.test_code} = {r.value} {r.units || ''}</div>
+                    <div className="text-gray-500">Resulted: {r.resulted_at || r.received_at}</div>
+                  </div>
+                  {roles.includes('LabTech') && (
+                    <div className="flex items-center gap-2">
+                      <button className="rounded border px-2 py-1" onClick={()=>{ setEditRow(r.id); setEditValue(r.value || ''); setEditUnits(r.units || '') }}>Edit</button>
+                      <button className="rounded border px-2 py-1" onClick={async ()=>{ if(confirm('Delete result?')){ try{ await api.deleteResult(oid, r.id); await load(); }catch(e){ setMsg(e.message) } } }}>Delete</button>
+                    </div>
+                  )}
+                </div>
+              )}
             </li>
           ))}
         </ul>
