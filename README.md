@@ -74,7 +74,6 @@ Prereqs: Docker Desktop, Node 20+ (for Vite 7), Python 3.11+
 - `AUTH_USERS` comma‑separated users: `username:password:Role[:LABCODE]`
   - Role accepts: Physician|Nurse|LabTech (case‑insensitive aliases allowed)
   - For LabTech, LABCODE optional → falls back to `DEFAULT_LAB_CODE`
-- `DEFAULT_LAB_CODE` default lab assignment for orders and LabTech claims (e.g., `LAB`)
 
 **Deployment**
 - Backend: Render (Docker). Ensure env set: `DATABASE_URL`, `JWT_SECRET`, `AUTH_USERS`, `DEFAULT_LAB_CODE`.
